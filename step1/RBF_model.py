@@ -70,23 +70,20 @@ class RBFNetwork(nn.Module):
 
 def train_rbf(model, X_train, y_train, X_val, y_val, epochs=150, lr=0.01,
               batch_size=32, patience=15, verbose=True):
-    """آموزش مدل RBF """
     start_time = time.time()
-
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    # تبدیل به tensor
     X_train_t = torch.tensor(X_train, dtype=torch.float32)
     y_train_t = torch.tensor(y_train, dtype=torch.long)
     X_val_t = torch.tensor(X_val, dtype=torch.float32)
     y_val_t = torch.tensor(y_val, dtype=torch.long)
 
-    # DataLoader برای Mini-Batch
     train_dataset = TensorDataset(X_train_t, y_train_t)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    history = {'train_loss': [], 'val_loss': [], 'val_f1': []}
+    # اضافه کردن train_f1 به تاریخچه
+    history = {'train_loss': [], 'val_loss': [], 'train_f1': [], 'val_f1': []}
     best_val_f1 = 0
     best_state = None
     epochs_no_improve = 0
@@ -106,6 +103,12 @@ def train_rbf(model, X_train, y_train, X_val, y_val, epochs=150, lr=0.01,
 
         model.eval()
         with torch.no_grad():
+            # محاسبه F1 برای آموزش (جهت رسم نمودار)
+            train_outputs = model(X_train_t)
+            train_pred = torch.argmax(train_outputs, dim=1).numpy()
+            train_f1 = f1_score(y_train, train_pred, average='macro')
+
+            # محاسبه F1 برای اعتبار‌سنجی
             val_outputs = model(X_val_t)
             val_loss = criterion(val_outputs, y_val_t)
             val_pred = torch.argmax(val_outputs, dim=1).numpy()
@@ -113,6 +116,7 @@ def train_rbf(model, X_train, y_train, X_val, y_val, epochs=150, lr=0.01,
 
         history['train_loss'].append(avg_train_loss)
         history['val_loss'].append(val_loss.item())
+        history['train_f1'].append(train_f1) # ذخیره جدید
         history['val_f1'].append(val_f1)
 
         if val_f1 > best_val_f1:
@@ -123,17 +127,14 @@ def train_rbf(model, X_train, y_train, X_val, y_val, epochs=150, lr=0.01,
             epochs_no_improve += 1
 
         if verbose and (epoch + 1) % 20 == 0:
-            print(
-                f"Epoch {epoch + 1}/{epochs} | Loss: {avg_train_loss:.4f} | Val Loss: {val_loss.item():.4f} | Val F1: {val_f1:.4f}")
+            print(f"Epoch {epoch + 1}/{epochs} | Loss: {avg_train_loss:.4f} | Val F1: {val_f1:.4f}")
 
         if epochs_no_improve >= patience:
-            if verbose:
-                print(f" Early stopping at epoch {epoch + 1}")
             break
 
-    model.load_state_dict(best_state)
-    training_time = time.time() - start_time
-    return history, best_val_f1, training_time
+    if best_state: model.load_state_dict(best_state)
+    return history, best_val_f1, time.time() - start_time
+
 
 
 def initialize_centers_kmeans(X_train, num_centers):
